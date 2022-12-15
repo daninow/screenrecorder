@@ -71,7 +71,7 @@ class ScreenRecorderController {
       skipped = skipped + skipFramesBetweenCaptures;
     }
     try {
-      final image = capture();
+      final image = await capture();
       if (image == null) {
         print('capture returned null');
         return;
@@ -83,11 +83,11 @@ class ScreenRecorderController {
     _binding.addPostFrameCallback(postFrameCallback);
   }
 
-  ui.Image? capture() {
+  Future<ui.Image?> capture() async {
     final renderObject = _containerKey.currentContext!.findRenderObject()
         as RenderRepaintBoundary;
 
-    return renderObject.toImageSync(pixelRatio: pixelRatio);
+    return renderObject.toImage(pixelRatio: pixelRatio);
   }
 }
 

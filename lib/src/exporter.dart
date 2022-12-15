@@ -7,6 +7,7 @@ import 'package:screen_recorder/src/frame.dart';
 
 class Exporter {
   final List<Frame> _frames = [];
+
   void onNewFrame(Frame frame) {
     _frames.add(frame);
   }
@@ -17,7 +18,7 @@ class Exporter {
 
   bool get hasFrames => _frames.isNotEmpty;
 
-  Future<List<RawFrame>?> exportFrames() async {
+  Future<List<RawFrame>?> exportFrames({int frameDurationInMillis = 16}) async {
     if (_frames.isEmpty) {
       return null;
     }
@@ -26,7 +27,7 @@ class Exporter {
       final bytesImage =
           await frame.image.toByteData(format: ui.ImageByteFormat.png);
       if (bytesImage != null) {
-        bytesImages.add(RawFrame(16, bytesImage));
+        bytesImages.add(RawFrame(frameDurationInMillis, bytesImage));
       } else {
         print('Skipped frame while enconding');
       }
@@ -34,8 +35,9 @@ class Exporter {
     return bytesImages;
   }
 
-  Future<List<int>?> exportGif() async {
-    final frames = await exportFrames();
+  Future<List<int>?> exportGif({int frameDurationInMillis = 16}) async {
+    final frames =
+        await exportFrames(frameDurationInMillis: frameDurationInMillis);
     if (frames == null) {
       return null;
     }
