@@ -106,7 +106,8 @@ class ScreenRecorder extends StatelessWidget {
           // `Colors.transparent` como caso especial explícito; no se admite
           // transparencia parcial (alfa intermedio) porque el compositing
           // premultiplicado con eso puede dar bordes con artefactos.
-          background.alpha == 255 || background == Colors.transparent,
+          (background.a * 255.0).round().clamp(0, 255) == 255 ||
+              background == Colors.transparent,
           'background color must be either fully opaque or Colors.transparent',
         ),
         super(key: key);

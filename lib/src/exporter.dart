@@ -1,7 +1,6 @@
 import 'dart:ui' as ui show ImageByteFormat;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:image/image.dart' as image;
 import 'package:screen_recorder/src/frame.dart';
 
