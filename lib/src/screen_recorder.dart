@@ -99,8 +99,16 @@ class ScreenRecorder extends StatelessWidget {
     required this.width,
     required this.height,
     this.background = Colors.white,
-  })  : assert(background.alpha == 255,
-            'background color is not allowed to be transparent'),
+  })  : assert(
+          // Antes: `background.alpha == 255` a secas, lo que impedía capturar
+          // con fondo transparente (necesario para exportar "stickers" con
+          // recorte real en vez de un fondo de color sólido). Se permite
+          // `Colors.transparent` como caso especial explícito; no se admite
+          // transparencia parcial (alfa intermedio) porque el compositing
+          // premultiplicado con eso puede dar bordes con artefactos.
+          background.alpha == 255 || background == Colors.transparent,
+          'background color must be either fully opaque or Colors.transparent',
+        ),
         super(key: key);
 
   /// The child which should be recorded.
@@ -119,8 +127,10 @@ class ScreenRecorder extends StatelessWidget {
   /// undefined behavior.
   final double height;
 
-  /// The background color of the recording.
-  /// Transparency is currently not supported.
+  /// The background color of the recording. Use `Colors.transparent` for a
+  /// sticker-style export with a real alpha channel (needs `exportApng`,
+  /// not `exportGif`, to preserve the transparency — GIF only supports 1-bit
+  /// on/off transparency).
   final Color background;
 
   @override

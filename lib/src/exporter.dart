@@ -29,12 +29,13 @@ class Exporter {
       if (bytesImage != null) {
         bytesImages.add(RawFrame(frameDurationInMillis, bytesImage));
       } else {
-        print('Skipped frame while enconding');
+        print('Skipped frame while encoding');
       }
     }
     return bytesImages;
   }
 
+  /// Animated GIF. Opaque, or 1-bit transparency at most.
   Future<List<int>?> exportGif({int frameDurationInMillis = 16}) async {
     final frames =
         await exportFrames(frameDurationInMillis: frameDurationInMillis);
@@ -44,21 +45,48 @@ class Exporter {
     return compute(_exportGif, frames);
   }
 
-  static Future<List<int>?> _exportGif(List<RawFrame> frames) async {
-    final animation = image.Animation();
-    animation.backgroundColor = Colors.transparent.value;
-    for (final frame in frames) {
-      final iAsBytes = frame.image.buffer.asUint8List();
-      final decodedImage = image.decodePng(iAsBytes);
+  /// Animated PNG (APNG), full 8-bit alpha per pixel. Use this instead of
+  /// [exportGif] when the [ScreenRecorder] was recorded with a transparent
+  /// background (sticker-style export), so edges stay clean instead of
+  /// jagged.
+  Future<List<int>?> exportApng({int frameDurationInMillis = 16}) async {
+    final frames =
+        await exportFrames(frameDurationInMillis: frameDurationInMillis);
+    if (frames == null) {
+      return null;
+    }
+    return compute(_exportApng, frames);
+  }
 
-      if (decodedImage == null) {
-        print('Skipped frame while enconding');
+  static image.Image? _buildAnimatedImage(List<RawFrame> frames) {
+    image.Image? anim;
+    for (final frame in frames) {
+      final decoded = image.decodePng(frame.image.buffer.asUint8List());
+      if (decoded == null) {
+        print('Skipped frame while encoding');
         continue;
       }
-      decodedImage.duration = frame.durationInMillis;
-      animation.addFrame(decodedImage);
+      decoded.frameDuration = frame.durationInMillis;
+      if (anim == null) {
+        anim = decoded;
+        anim.frameType = image.FrameType.animation;
+      } else {
+        anim.addFrame(decoded);
+      }
     }
-    return image.encodeGifAnimation(animation);
+    return anim;
+  }
+
+  static List<int>? _exportGif(List<RawFrame> frames) {
+    final anim = _buildAnimatedImage(frames);
+    if (anim == null) return null;
+    return image.encodeGif(anim);
+  }
+
+  static List<int>? _exportApng(List<RawFrame> frames) {
+    final anim = _buildAnimatedImage(frames);
+    if (anim == null) return null;
+    return image.encodePng(anim);
   }
 }
 
