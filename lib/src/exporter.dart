@@ -8,6 +8,36 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as image;
 import 'package:screen_recorder/src/frame.dart';
 
+/// Calidad de *codificación* para [Exporter.exportGif]/[Exporter.exportWebp]
+/// — cuántos colores usa la paleta del GIF, qué dithering aplica, y si el
+/// WebP se codifica lossless o lossy. Es un ajuste independiente de la
+/// resolución de captura: esa la fija quien use este paquete vía el
+/// `pixelRatio` de `ScreenRecorderController`, no `Exporter`. Pensar en esto
+/// como "cuántos bits gasta cada frame ya capturado", no "qué tan grande es
+/// cada frame".
+enum ExportQuality {
+  /// Máxima fidelidad: paleta GIF de 256 colores con estadísticas completas
+  /// (`palettegen=stats_mode=full`) + dithering por difusión de error
+  /// (`sierra2_4a`); WebP lossless (sin pérdida por frame). Es el
+  /// comportamiento de siempre, de antes de que existiera este enum, y
+  /// sigue siendo el valor por defecto para no romper a quien ya use este
+  /// paquete sin pasar `quality`.
+  high,
+
+  /// Paleta GIF reducida a 192 colores con dithering ordenado
+  /// (`bayer:bayer_scale=3`, más barato de calcular y comprime mejor que la
+  /// difusión de error porque el patrón de puntos es regular); WebP lossy
+  /// de alta calidad (`-quality 90`). Pérdida apenas perceptible con un
+  /// archivo notablemente más liviano.
+  medium,
+
+  /// Paleta GIF de 128 colores sin dithering (con pocos colores, el
+  /// dithering aporta más ruido/peso del que disimula el banding que
+  /// evita); WebP lossy más agresivo (`-quality 75`). Prioriza tamaño de
+  /// archivo sobre nitidez — pensado para clips largos/pesados.
+  low,
+}
+
 class Exporter {
   final List<Frame> _frames = [];
 
@@ -44,7 +74,14 @@ class Exporter {
   /// clips. Frames are dumped as PNGs to a temp dir and muxed with a
   /// two-pass palettegen/paletteuse filter graph, which also looks better
   /// than a single fixed 256-color table (per-clip palette + dithering).
-  Future<List<int>?> exportGif({int frameDurationInMillis = 16}) async {
+  ///
+  /// [quality] (see [ExportQuality]) controls the palette size and dithering
+  /// used by that filter graph — a tradeoff between visual fidelity and file
+  /// size that's independent of the resolution each frame was captured at.
+  Future<List<int>?> exportGif({
+    int frameDurationInMillis = 16,
+    ExportQuality quality = ExportQuality.high,
+  }) async {
     final frames =
         await exportFrames(frameDurationInMillis: frameDurationInMillis);
     if (frames == null || frames.isEmpty) {
@@ -57,13 +94,15 @@ class Exporter {
       final fps = _fpsArg(frameDurationInMillis);
       final palettePath = '${dir.path}/palette.png';
       final outPath = '${dir.path}/out.gif';
+      final maxColors = _gifMaxColors(quality);
+      final dither = _gifDither(quality);
 
       // Pass 1: build a palette tailored to this specific clip.
       await _execFfmpeg([
         '-y',
         '-framerate', fps,
         '-i', framePattern,
-        '-vf', 'palettegen=stats_mode=full',
+        '-vf', 'palettegen=stats_mode=full:max_colors=$maxColors',
         palettePath,
       ]);
       // Pass 2: encode against that palette with dithering, looped forever.
@@ -72,7 +111,7 @@ class Exporter {
         '-framerate', fps,
         '-i', framePattern,
         '-i', palettePath,
-        '-lavfi', 'paletteuse=dither=sierra2_4a',
+        '-lavfi', 'paletteuse=dither=$dither',
         '-loop', '0',
         outPath,
       ]);
@@ -99,16 +138,24 @@ class Exporter {
     return compute(_exportApng, frames);
   }
 
-  /// Animated WebP, lossless per frame (full 8-bit alpha). This is the
-  /// format WhatsApp-style "sticker" pickers actually expect for an animated
-  /// sticker — GIF only has 1-bit transparency and APNG isn't recognized as
-  /// an animated sticker by WhatsApp.
+  /// Animated WebP. This is the format WhatsApp-style "sticker" pickers
+  /// actually expect for an animated sticker — GIF only has 1-bit
+  /// transparency and APNG isn't recognized as an animated sticker by
+  /// WhatsApp.
   ///
-  /// Encoded via FFmpeg's `libwebp` encoder (`-lossless 1`), the same way
-  /// [exportGif] now goes through FFmpeg instead of `package:image`'s
-  /// hand-rolled VP8L encoder + RIFF muxer, which could throw on some
-  /// inputs.
-  Future<List<int>?> exportWebp({int frameDurationInMillis = 16}) async {
+  /// Encoded via FFmpeg's `libwebp` encoder, the same way [exportGif] now
+  /// goes through FFmpeg instead of `package:image`'s hand-rolled VP8L
+  /// encoder + RIFF muxer, which could throw on some inputs.
+  ///
+  /// [quality] (see [ExportQuality]) picks between lossless (full 8-bit
+  /// alpha per frame, no quality loss, largest files — [ExportQuality.high],
+  /// the default and the behavior this method always had before `quality`
+  /// existed) and lossy at two compression levels, which alpha still
+  /// supports but at a smaller file size.
+  Future<List<int>?> exportWebp({
+    int frameDurationInMillis = 16,
+    ExportQuality quality = ExportQuality.high,
+  }) async {
     final frames =
         await exportFrames(frameDurationInMillis: frameDurationInMillis);
     if (frames == null || frames.isEmpty) {
@@ -126,7 +173,7 @@ class Exporter {
         '-framerate', fps,
         '-i', framePattern,
         '-c:v', 'libwebp',
-        '-lossless', '1',
+        ..._webpQualityArgs(quality),
         '-loop', '0',
         '-an',
         outPath,
@@ -163,6 +210,54 @@ class Exporter {
   static String _fpsArg(int frameDurationInMillis) {
     final ms = frameDurationInMillis > 0 ? frameDurationInMillis : 16;
     return (1000 / ms).toStringAsFixed(4);
+  }
+
+  /// `palettegen`'s `max_colors` for each [ExportQuality] tier. Fewer
+  /// colors means fewer distinct pixel values for the GIF's LZW compressor
+  /// to encode, which is the single biggest lever on GIF file size.
+  static int _gifMaxColors(ExportQuality quality) {
+    switch (quality) {
+      case ExportQuality.high:
+        return 256;
+      case ExportQuality.medium:
+        return 192;
+      case ExportQuality.low:
+        return 128;
+    }
+  }
+
+  /// `paletteuse`'s `dither` algorithm for each [ExportQuality] tier.
+  /// `sierra2_4a` (error-diffusion) looks best but its irregular noise
+  /// pattern compresses poorly; `bayer` (ordered dithering) has a regular
+  /// pattern that the LZW compressor handles better, at a small quality
+  /// cost; `none` avoids dithering entirely, which at low color counts
+  /// tends to look better AND compress better than dithering noise onto an
+  /// already-sparse palette.
+  static String _gifDither(ExportQuality quality) {
+    switch (quality) {
+      case ExportQuality.high:
+        return 'sierra2_4a';
+      case ExportQuality.medium:
+        return 'bayer:bayer_scale=3';
+      case ExportQuality.low:
+        return 'none';
+    }
+  }
+
+  /// `libwebp` encoder flags for each [ExportQuality] tier. `high` keeps the
+  /// lossless behavior this method always had; `medium`/`low` switch to
+  /// lossy at decreasing `-quality`, which cuts file size substantially —
+  /// lossy WebP still supports full alpha, so sticker transparency isn't
+  /// affected, only the RGB compression.
+  static List<String> _webpQualityArgs(ExportQuality quality) {
+    switch (quality) {
+      case ExportQuality.high:
+        return ['-lossless', '1'];
+      case ExportQuality.medium:
+        return ['-lossless', '0', '-quality', '90', '-compression_level', '6'];
+      case ExportQuality.low:
+        return ['-lossless', '0', '-quality', '75', '-compression_level', '6'];
+    }
   }
 
   static Future<void> _execFfmpeg(List<String> arguments) async {

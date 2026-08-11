@@ -1,3 +1,7 @@
+## [0.3.1]
+
+* `exportGif`/`exportWebp` take an optional `quality` parameter (`ExportQuality`: `high`/`medium`/`low`, default `high` — same behavior as before this existed). Controls GIF palette size + dithering and GIF/WebP lossless-vs-lossy, independent of the resolution frames were captured at. See `Exporter.exportGif`/`exportWebp` doc comments for the exact ffmpeg flags per tier.
+
 ## [0.3.0]
 
 * `exportGif` and `exportWebp` now encode via FFmpeg (`ffmpeg_kit_flutter_new_video`, LGPL-3.0) instead of `package:image`'s pure-Dart encoders, which could throw a `RangeError` on some clips. `exportGif` uses a two-pass palettegen/paletteuse filter graph; `exportWebp` uses `libwebp -lossless 1`. Public API (`Exporter.exportGif`/`exportWebp`, return type `Future<List<int>?>`) is unchanged.
