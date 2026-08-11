@@ -1,3 +1,9 @@
+## [0.3.0]
+
+* `exportGif` and `exportWebp` now encode via FFmpeg (`ffmpeg_kit_flutter_new_video`, LGPL-3.0) instead of `package:image`'s pure-Dart encoders, which could throw a `RangeError` on some clips. `exportGif` uses a two-pass palettegen/paletteuse filter graph; `exportWebp` uses `libwebp -lossless 1`. Public API (`Exporter.exportGif`/`exportWebp`, return type `Future<List<int>?>`) is unchanged.
+* Requires Android API 24+ (raised by `ffmpeg_kit_flutter_new_video`).
+* `exportApng` is unchanged and still uses `package:image`.
+
 ## [0.2.0]
 
 * `Exporter` class exposes now `exportGif` and `exportFrames`.

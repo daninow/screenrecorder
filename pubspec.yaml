@@ -1,6 +1,6 @@
 name: screen_recorder
 description: Record your Flutter widgets and export the recordings as a GIF
-version: 0.2.0
+version: 0.3.0
 repository: https://github.com/ueman/screenrecorder
 issue_tracker: https://github.com/ueman/screenrecorder/issues
 funding:
@@ -15,6 +15,10 @@ dependencies:
   flutter:
     sdk: flutter
   image: ^4.9.1
+  # LGPL-3.0 variant (no GPL codecs) — used to encode exportGif/exportWebp
+  # via the system FFmpeg instead of package:image's pure-Dart encoders,
+  # which could throw on some inputs (see exporter.dart for details).
+  ffmpeg_kit_flutter_new_video: ^2.5.2
 
 dev_dependencies:
   flutter_test:
