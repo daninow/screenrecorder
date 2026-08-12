@@ -16,12 +16,14 @@ import 'package:screen_recorder/src/frame.dart';
 /// como "cuántos bits gasta cada frame ya capturado", no "qué tan grande es
 /// cada frame".
 enum ExportQuality {
-  /// Máxima fidelidad: paleta GIF de 256 colores con estadísticas completas
-  /// (`palettegen=stats_mode=full`) + dithering por difusión de error
-  /// (`sierra2_4a`); WebP lossless (sin pérdida por frame). Es el
-  /// comportamiento de siempre, de antes de que existiera este enum, y
-  /// sigue siendo el valor por defecto para no romper a quien ya use este
-  /// paquete sin pasar `quality`.
+  /// Máxima fidelidad: paleta GIF de 256 colores + dithering por difusión de
+  /// error (`sierra2_4a`); WebP lossless (sin pérdida por frame). Tamaño de
+  /// paleta y dithering son el comportamiento de siempre, de antes de que
+  /// existiera este enum, y sigue siendo el valor por defecto para no
+  /// romper a quien ya use este paquete sin pasar `quality`. (El otro eje de
+  /// la paleta GIF, `stats_mode=diff` en vez de `full`, SÍ es un cambio de
+  /// comportamiento respecto a antes de este enum, pero aplica igual a las
+  /// tres opciones — ver el doc comment de [Exporter.exportGif].)
   high,
 
   /// Paleta GIF reducida a 192 colores con dithering ordenado
@@ -75,6 +77,22 @@ class Exporter {
   /// two-pass palettegen/paletteuse filter graph, which also looks better
   /// than a single fixed 256-color table (per-clip palette + dithering).
   ///
+  /// Palette generation uses `stats_mode=diff` (pixels that changed since the
+  /// previous frame count more toward the 256-color budget) instead of
+  /// `full` (every pixel of every frame counts equally). This matters a lot
+  /// for animtext's typical clip: a large, visually complex STATIC image
+  /// behind small ANIMATED text. Under `full`, the image's sheer pixel count
+  /// dominates the palette and the text's colors can get pushed out
+  /// entirely — bug report: "solo se ve la imagen de fondo en el GIF
+  /// exportado" (text invisible, only the background image shows). Under
+  /// `diff`, a static background contributes its colors only once (as the
+  /// "diff" against a nonexistent previous frame on frame 1) while the
+  /// text — different on every frame — keeps earning palette weight, which
+  /// is exactly ffmpeg's documented use case for `stats_mode=diff`
+  /// ("useful ... if the background is static", ffmpeg-filters(1)). No
+  /// downside for plain solid-color backgrounds: those already use at most a
+  /// handful of palette entries either way.
+  ///
   /// [quality] (see [ExportQuality]) controls the palette size and dithering
   /// used by that filter graph — a tradeoff between visual fidelity and file
   /// size that's independent of the resolution each frame was captured at.
@@ -97,12 +115,15 @@ class Exporter {
       final maxColors = _gifMaxColors(quality);
       final dither = _gifDither(quality);
 
-      // Pass 1: build a palette tailored to this specific clip.
+      // Pass 1: build a palette tailored to this specific clip. `stats_mode=diff`
+      // (see the doc comment above) keeps animated text visible over a
+      // static background image instead of letting the image's pixel count
+      // crowd the text out of the 256-color palette.
       await _execFfmpeg([
         '-y',
         '-framerate', fps,
         '-i', framePattern,
-        '-vf', 'palettegen=stats_mode=full:max_colors=$maxColors',
+        '-vf', 'palettegen=stats_mode=diff:max_colors=$maxColors',
         palettePath,
       ]);
       // Pass 2: encode against that palette with dithering, looped forever.

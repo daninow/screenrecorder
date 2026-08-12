@@ -1,6 +1,7 @@
 ## [0.3.1]
 
 * `exportGif`/`exportWebp` take an optional `quality` parameter (`ExportQuality`: `high`/`medium`/`low`, default `high` — same behavior as before this existed). Controls GIF palette size + dithering and GIF/WebP lossless-vs-lossy, independent of the resolution frames were captured at. See `Exporter.exportGif`/`exportWebp` doc comments for the exact ffmpeg flags per tier.
+* Fix: `exportGif`'s palette generation now uses `palettegen=stats_mode=diff` instead of `stats_mode=full`. With a large static background (e.g. a photo) behind small animated text, `full` let the background's pixel count dominate the 256-color palette and could push the text's colors out entirely — reported as "only the background image shows, text is invisible" in a GIF export. `diff` weights pixels that change frame-to-frame (the text) over pixels that don't (a static background), which is ffmpeg's documented fix for exactly this "static background" case. Applies to all `quality` tiers; no effect on plain solid-color backgrounds.
 
 ## [0.3.0]
 
